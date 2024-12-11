@@ -184,7 +184,7 @@ def read_wcrops_all_clm(f, management, var):
     #ds_var_out         = ds_var_rescaled.assign_coords(time=("time", time)).swap_dims({"year": "time"}).drop("doy")
     ds_var_rescaled = ds_var_rescaled.stack(time=("year", "doy"))
     ds_var_rescaled = ds_var_rescaled.drop_vars(['time', 'year', 'doy'])
-    ds_var_rescaled = ds_var_rescaled.assign_coords(time=("time", time))         #   should be midday need to add +12hrs --> fixed in pft_to_fluxes
+    ds_var_rescaled = ds_var_rescaled.assign_coords(time=("time", time))
     ds_var_out = ds_var_rescaled.transpose("time", ...)
 
     return ds_var_out
