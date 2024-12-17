@@ -71,7 +71,7 @@ def read_wcrop_clm(f, crop, var,  management):
     lum        = lum.sel(year=ds_var_reshaped.year)
     lum        = lum.expand_dims(doy=times)
     pct_crop   = lum['PCT_CFT'].transpose("year", "doy", "cft", "lat", "lon")
-    pct_crop   = pct_crop[:, :,indices,:,:]
+
 
     # select crops based on management (irrigated / rainfed)
     if management == 'rainfed':
