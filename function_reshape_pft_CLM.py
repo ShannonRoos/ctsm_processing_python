@@ -52,6 +52,6 @@ def reshape_1D_to_2Dgrid(varname, data_in, mask =None):
         'time': grid_dims.time,
         'pft': grid_dims.pft
             })
-        grid_dims        = grid_dims.where(mask)
+        grid_dims        = grid_dims.where(mask==1)
 
     return grid_dims
