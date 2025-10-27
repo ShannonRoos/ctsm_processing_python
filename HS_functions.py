@@ -1,51 +1,48 @@
 import xarray as xr
 import numpy as np
 
-''' functions used to define heatwaves.
-    -------------------- CLIMATOLOGY -----------------------------------------------------------------------------
-    calc_clim           : calculates climatology of reference period
-    calc_clim_sd        : same as calc clim but including standard deviation
-    -------------------- HEATWAVE DEFINITIONS --------------------------------------------------------------------
-    HWmask_clim_ABSanom : mask based on absolute threshold exceeding the climatology (kelvin or celsius)
-    HWmask_clim_SDanom  : mask based on exceeding the standard deviation of reference climatology (kelvin or celcius)
-    -------------------- HEATWAVE OUTPUT ------------------------------------------------------------------------
-    HW_mask             : generates output dataset calculating the occurence and duration of these HW definitions 
+def calc_clim(ds, ref_years=(1961,1990), center=True, window_days = 15):
     '''
-
-def calc_clim(ds, window, ref_years=(1961, 1990)):
-    '''
-    Compute the climatological mean of temperature dataset (TXnorm) using
+    Compute the climatological mean of temperature dataset (TXnorm) using 
     a x-day rolling window centered on each calendar day.
 
     Parameters:
     tx (xarray.DataArray): Temperature array with dimensions ('time', 'lat', 'lon').
-    ref_years (tuple)    : Reference period (start_year, end_year) for climatology.
-    window               : number of days to include around DOY for smoothing
+    ref_years (tuple): Reference period (start_year, end_year) for climatology.
+    center               : True (take mid-point) or False (historical)
+    window_days          : number of days to consider in time window
 
     Returns:
     xarray.DataArray: TXnorm with a climatological mean for each calendar day.
     '''
-    # Apply a 15-day rolling mean centered on each day
-    ds_rollmean = ds.rolling(time=window, center=True,
-                             min_periods=1).construct("window")
     # Select reference period
-    ds_ref = ds_rollmean.sel(time=slice(f"{ref_years[0]}-01-01",
+    ds_ref = ds.sel(time=slice(f"{ref_years[0]}-01-01", 
                                         f"{ref_years[1]}-12-31"))
+    
+    # we fill nan with zero, to make sure the runtime warnings are only from the nan grids:
+    ds_ref = ds_ref.fillna(0)
 
+    # Apply a x-day rolling mean centered on each day
+    ds_roll = ds_ref.rolling(time=window_days, center=center, 
+                             min_periods=1).construct("window")
+    
     # Convert time to day-of-year (DOY)
-    doy = ds_ref.time.dt.dayofyear
-
+    doy    = ds_roll.time.dt.dayofyear
+    
     # Compute mean for each day of the year across all reference years
-    climatology = ds_ref.groupby(doy).mean(dim=("window", "time"))
+    climatology = ds_roll.groupby(doy).mean(dim=("window", "time"))  
 
     # Ensure only 365 days remain
     if doy.max() == 366:
         climatology = climatology.sel(dayofyear=climatology["dayofyear"] != 60)
 
+    # put all zero values back to nan
+    mask_all_zero = (climatology == 0).all(dim="dayofyear") 
+    climatology   = climatology.where(~mask_all_zero)
+ 
     return climatology
 
-
-def calc_clim_sd(ds, window, ref_years=(1961, 1990)):
+def calc_clim_sd(ds, ref_years=(1961,1990), center=True, window_days = 15):
     """
     Compute climatological mean and std of temperature with a x-day rolling window,
     grouped by day of year (DOY).
@@ -53,78 +50,96 @@ def calc_clim_sd(ds, window, ref_years=(1961, 1990)):
     Parameters:
     ds (xarray.DataArray): Temperature data with 'time' dimension.
     ref_years (tuple)    : Reference period (start_year, end_year).
-    window               : number of days to include around DOY for smoothing
+    center               : True (take mid-point) or False (historical)
+    window_days          : number of days to consider in time window
 
     Returns:
     (clim_mean, clim_std): Two DataArrays of shape (dayofyear, lat, lon).
     """
-    ds_ref = ds.sel(time=slice(f"{ref_years[0]}-01-01",
+    ds_ref = ds.sel(time=slice(f"{ref_years[0]}-01-01", 
                                f"{ref_years[1]}-12-31"))
 
-    # Apply 15-day rolling and construct window
-    ds_roll = ds_ref.rolling(time=window, center=True,
+    # we fill nan with zero, to make sure the runtime warnings are only from the nan grids:
+    ds_ref = ds_ref.fillna(0)
+    
+    # Apply x-day rolling and construct window
+    ds_roll = ds_ref.rolling(time=window_days, center=center, 
                              min_periods=1).construct("window")
-
+    
     # Assign DOY for grouping
     doy = ds_roll.time.dt.dayofyear
     ds_roll.coords["doy"] = ("time", doy.data)
 
     # Compute mean and std across time and window
     clim_mean = ds_roll.groupby("doy").mean(dim=("time", "window"))
-    clim_std = ds_roll.groupby("doy").std(dim=("time", "window"))
+    clim_std  = ds_roll.groupby("doy").std(dim=("time", "window"))
+
 
     # Drop leap day (Feb 29)
     if doy.max() == 366:
         clim_mean = clim_mean.sel(doy=clim_mean["doy"] != 60)
-        clim_std = clim_std.sel(doy=clim_std["doy"] != 60)
+        clim_std  = clim_std.sel(doy=clim_std["doy"] != 60)
+
+    # put all zero values back to nan
+    mask_all_zero = (clim_mean == 0).all(dim="doy")   
+    clim_mean     = clim_mean.where(~mask_all_zero)
+    clim_std      = clim_std.where(~mask_all_zero)
 
     return clim_mean, clim_std
+    
+def HWmask_clim_Tanom(ds, climatology,Textr=5, Tmin=27):
+    """
+    mask out non-extreme days using the climatology (dayofyear)
+    and fixed anomaly temperature.
+    ds          : temperature dataset for desired period (time,lat,lon)
+    climatology : mean temperature for day of year (doy, lat, lon)
+    Textr       : temperature threshold above climatological mean to define extreme
+    Tmin        : mininum temperature to be considered a heatwave
 
-
-def HWmask_clim_ABSanom(ds, climatology, Tmin=28, Textr=5):
-    doy = ds.time.dt.dayofyear
-
+    returns:
+    numpy.Array (time,lat,lon)
+    """
+    doy    = ds.time.dt.dayofyear
+    
     anomaly_extr = ds.groupby(doy) - (climatology + Textr)
-
-    # extreme years
-    mask_extremes = np.where((anomaly_extr > 0) & (ds >= Tmin), 1, np.nan)
-
+    
+    #extreme days
+    mask_extremes  = np.where((anomaly_extr > 0) & (ds>= 27),1, np.nan)
+    
     return mask_extremes
-
-
+    
 def HWmask_clim_SDanom(ds, clim_mean, clim_std, Tmin=27, SD_mf=1.5):
     """
-    Detect heatwave extremes when temperature exceeds climatology + 2*std and a Tmin threshold.
+    Detect heatwave extremes when temperature exceeds clim_mean + SD_mf*std and a Tmin threshold.
 
     Parameters:
     ds (xarray.DataArray): Daily temperature dataset.
-    clim_mean (xarray.DataArray): Climatological mean (dayofyear, lat, lon).
-    clim_std  (xarray.DataArray): Climatological std (dayofyear, lat, lon).
-    Tmin (float): Minimum temperature threshold for defining a heatwave.
+    clim_mean (xarray.DataArray): Climatological mean (dayofyear, lat, lon)
+    clim_std  (xarray.DataArray): Climatological std (dayofyear, lat, lon)
+    Tmin (float): Minimum temperature threshold for defining a heatwave
     SD (float)  : Multiplication factor for standard deviation to define anomaly upper tail
                   Default is 1.5 (~93 percentile), consider: 1.75 (96th), 2.0 (97.7th), 3.0 (99.7th)
 
     Returns:
     xarray.DataArray: Binary mask (1 = extreme, nan = non-extreme).
     """
+    
+    doy                 = ds.time.dt.dayofyear
+    ds.coords["doy"]    = doy
 
-    doy              = ds.time.dt.dayofyear
-    ds.coords["doy"] = doy
-
-    threshold        = clim_mean + SD_mf * clim_std
+    threshold           = clim_mean + SD_mf * clim_std
     # Align threshold to each day by indexing using doy
-    threshold_for_day = threshold.sel(doy=ds.doy)
+    threshold_for_day   = threshold.sel(doy=ds.doy)
 
     # Apply extreme condition
-    mask_extremes = xr.where((ds > threshold_for_day) & (ds >= Tmin), 1, np.nan)
+    mask_extremes       = xr.where((ds > threshold_for_day) & (ds >= Tmin), 1, np.nan)
 
     return mask_extremes
-
 
 def HW_mask(temperature, clim, SD, factor, tmin=28,HW_definition='SD_anom'):
     """
     Uses temperature to define the timing and duration of heatwaves, based on the heatwave definition.
-    parameters:
+    inputs:
     - temperature : xarray dataset (noleap in cftime) on which the heatwaves must be computed
     - HW_definition: current options are: abs_anom (based on a fixed temperature threshold above the climatology) and
                     SD_anom (based on standard deviation above climatological mean)
@@ -141,7 +156,6 @@ def HW_mask(temperature, clim, SD, factor, tmin=28,HW_definition='SD_anom'):
 
     # --------- 1. Create mask in which heatwave definition when true is set to 1
     if HW_definition == 'abs_anom':
-        # calculate climatology
         MASK_HW      = HWmask_clim_ABSanom(temperature, clim, Tmin=tmin, Textr=factor)
     elif HW_definition =='SD_anom':
         MASK_HW        = HWmask_clim_SDanom(temperature,clim, SD, Tmin=tmin, SD_mf=factor)
@@ -150,7 +164,7 @@ def HW_mask(temperature, clim, SD, factor, tmin=28,HW_definition='SD_anom'):
     MASK_HW = xr.DataArray(MASK_HW, dims=["time", "lat", "lon"],
                            coords={"time": temperature['time'], "lat": temperature['lat'], "lon": temperature['lon']})
 
-    #             close redundant dataset to free memory
+    #  close redundant dataset to free memory
     temperature.close()
 
     # --------- 2. calculate onset, offset and duration heatwaves
@@ -163,17 +177,17 @@ def HW_mask(temperature, clim, SD, factor, tmin=28,HW_definition='SD_anom'):
     valid_locations = list(zip(lat_idx, lon_idx))
 
     #             define empty np.array
-    times = MASK_HW['time'].values
-    lats = MASK_HW['lat'].values
-    lons = MASK_HW['lon'].values
+    times      = MASK_HW['time'].values
+    lats       = MASK_HW['lat'].values
+    lons       = MASK_HW['lon'].values
 
-    dims = (len(times), len(lats), len(lons))
+    dims       = (len(times), len(lats), len(lons))
     HW_lengths = np.full(dims, np.nan)
 
     #             close redundant dataset to free memory
     MASK_HW.close()
 
-    #             calculate duration of heatwaves for each cell
+    #  calculate duration of heatwaves for each cell
     for i in valid_locations:
         # define onset & offsets heatwaves
         arr_onset  = hwstart[:, i[0], i[1]]
@@ -210,6 +224,7 @@ def HW_mask(temperature, clim, SD, factor, tmin=28,HW_definition='SD_anom'):
 
     return ds_HW
 
+
 def onset_filter(array, axis):
     """
     Returns locations when the values of array go from nan to valid for at least 3 steps
@@ -218,20 +233,18 @@ def onset_filter(array, axis):
         x.rolling(time=5, center=True, min_periods=1).reduce(rising_filter)
 
     Note that applying this to a Dask array will load the entire input array
-
     source: https://gist.github.com/ScottWales/dd9358bea2547c99e46b197bc9f53d21
     """
     # Make sure there are enough points
-    assert (array.shape[axis] == 5)
-
+    assert(array.shape[axis] == 5)
+    
     # Make sure we're working on the last axis
-    assert (axis == array.ndim - 1 or axis == -1)
+    assert(axis == array.ndim-1 or axis == -1)
 
     left = array[..., 1]
     right = array[..., 2:].sum(axis=axis)
 
     return np.logical_and(np.isnan(left), np.isfinite(right))
-
 
 def offset_filter(array, axis):
     """
@@ -243,10 +256,10 @@ def offset_filter(array, axis):
     Note that applying this to a Dask array will load the entire input array
     """
     # Make sure there are enough points
-    assert (array.shape[axis] == 5)
-
+    assert(array.shape[axis] == 5)
+    
     # Make sure we're working on the last axis
-    assert (axis == array.ndim - 1 or axis == -1)
+    assert(axis == array.ndim-1 or axis == -1)
 
     left = array[..., :3].sum(axis=axis)  # Sum the first 3 elements
     right = array[..., 3]  # Fourth element

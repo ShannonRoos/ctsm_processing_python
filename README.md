@@ -7,8 +7,8 @@ contains:
 
 - crop_weights.py: functions related to rescaling CLM output consdering weighted average of crop percentages and converting GRAIN_C_TO_FOOD to yield in t/ha
 
-# calculating area under the curve LAI:
-- LAI_functions.py: functions related to calculation of LAI slope
-- HS_functions.py : functions related to definition of heatwave
-- LAI_AUC_calculation.ipynb: calculation of area under the curve
+# functions organized per category:
+- LAI_functions.py : functions related to calculation of LAI slope
+- HS_functions.py  : functions related to definition of heatwave
+- grainc_global.py : CLM postprocessing functions for annual yield
 
