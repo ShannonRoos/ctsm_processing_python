@@ -10,5 +10,5 @@ contains:
 # functions organized per category:
 - LAI_functions.py : functions related to calculation of LAI slope
 - HS_functions.py  : functions related to definition of heatwave
-- grainc_global.py : CLM postprocessing functions for annual yield
+- GRAINC_functions.py : CLM postprocessing functions for annual yield
 
