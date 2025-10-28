@@ -21,4 +21,4 @@ contains python and bash scripts to harmonize LAI datasets from GLASS and CGLS, 
 
 See workflow in image below
 
-![Workflow overview](assets/flowchart.png)
+![Workflow overview](/data/brussel/109/vsc10951/github/ctsm_processing_python/assets/flowchart.jpg)
