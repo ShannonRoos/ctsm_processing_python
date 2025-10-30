@@ -14,10 +14,10 @@ contains:
 
 
 ### remap_lai_agriculture
-contains python and bash scripts to harmonize LAI datasets from GLASS and CGLS, extract agricultural information and aggregate to CLM5 desired resolution.
+contains python and bash scripts to harmonize LAI datasets from GLASS and CGLS, extract agricultural information based on CCI landcover data and aggregate to CLM5 desired resolution.
 - processing_bash: simple remapping scripts using CDO
-- mask_CGLS_LAI.ipynb: 
-- mask_GLASS_LAI.ipynb:
+- ESA_CCI_cropmask_functions.ipynb: crop masking of GLASS LAI using CCI data
+- mask_CGLS_LAI.ipynb: elaborate script masking Copernicus LAI using CCI masks and harmonizing with GLASS LAI.
 
 See workflow in image below
 
